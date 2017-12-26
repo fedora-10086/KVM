@@ -1,0 +1,35 @@
+创建虚拟机——实例1：
+virt-install --name vm01 --ram 2048 --vcpus 2  --boot network,menu=on --os-variant=rhel6 --accelerate --cdrom=/home/CentOS-6.5-x86_64-minimal.iso --disk path=/home/kvm/vm01.img,size=30,bus=virtio --bridge=br0,model=virtio --autostart --vnc --vncport=5900 --vnclisten=0.0.0.0 --noautoconsole
+
+
+安装桌面图形化，依赖包：
+yum groupinstall -y "Desktop" "Desktop Platform" "Desktop Platform Development" "Fonts" "General Purpose Desktop" "General Purpose Desktop" "Graphical Administration Tools" "Graphics Creation Tools" "Imput Methods" "X Window System" "Chinese Support [zh]" "Internet Browser"
+
+
+创建虚拟机——实例2：
+
+virt-install --virt-type kvm --name centos-6.8 --ram 1024 \
+    --vcpus 1 \  --cdrom=/kvmtest/CentOS-6.8-x86_64-minimal.iso \  --disk /kvmtest/centos-6.8.qcow2,format=qcow2 \  --network network=default \  --graphics vnc,listen=0.0.0.0 --noautoconsole \  --os-type=linux --os-variant=rhel6
+
+以下是各参数代表的意思：
+
+    -n NAME
+    指定虚拟机的名称
+    -r MEMORY
+    指定虚拟机的内存用量
+    -u UUID
+    指定虚拟机的唯一通用标识符
+    （Universally Unique Identifier，UUID）。
+    省略这个参数时，virt-install 将会自动产生
+    –vcpus=VCPUS
+    指定虚拟机的虚拟 CPU （Virtual CPU，VCPU） 数量
+    -f DISKFILE
+    指定虚拟磁盘的文件路径名称
+    -s DISKSIZE
+    用来指定虚拟磁盘的大小，这个参数需配合-f 使用。
+    DISKSIZE为虚拟磁盘的大小，单位是GB
+    -m MAC
+    指定虚拟机的网络卡之硬件地址。
+    这个参数可以省略，省略时virt-install 将自动产生
+    -p 以半虚拟化的方式建立虚拟机
+    -l LOCATION 指定安装来源
