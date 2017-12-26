@@ -1,0 +1,214 @@
+一、开启cpu虚拟化
+
+    首先开启CPU虚拟化支持，通过BIOS设置。之后输入
+
+[root@hostname ~]#egrep '(vmx|svm)' /prov/cpuinfo
+
+如果有输出内容，代表cpu已经开启虚拟化支持。
+
+vi /etc/selinux/conf
+SELINUX=disabled
+
+setenforce 0
+
+shell> vi /root/.bash_profile
+ export TMOUT=1000000
+
+vi /etc/security/limits.conf
+* soft nproc 65535
+* hard nproc 65535
+* soft nofile 65535
+* hard nofile 65535
+
+vi /etc/sysctl.conf
+
+fs.file-max=65535
+vm.swappiness=10
+
+net.ipv4.ip_forward = 0
+net.bridge.bridge-nf-call-ip6tables = 0
+net.bridge.bridge-nf-call-iptables = 0
+net.bridge.bridge-nf-call-arptables = 0
+
+sysctl -p
+
+yum update -y
+
+yum install -y wget vim lsof nload iftop sysstat tcpdump htop iotop lrzsz
+
+vi .bashrc
+alias ll='ls -lh'
+alias grep='grep --color=auto'
+alias vi='vim'
+
+source .bashrc
+
+wget https://mirrors.tuna.tsinghua.edu.cn/epel/6/x86_64/epel-release-6-8.noarch.rpm
+
+rpm -ivh epel-release-6-8.noarch.rpm
+
+
+
+二、安装kvm相关软件包
+
+[root@hostname ~]#yum install -y libvirt-client gpxe-roms-qemu libvirt-python python-virtinst qemu-kvm virt-manager libvirt virt-viewer virt-top virt-what qemu-img
+
+三、安装virt-manager相关组件
+
+    virt-manager是一个图形化的虚拟机管理工具，它提供了一个简易的图形化虚拟机操作界面。要是用它，需要安装如下组件。
+
+[root@hostname ~]#yum groupinstall -y "Desktop" "Desktop Platform" "Desktop Platform Development" "Fonts" "General Purpose Desktop" "General Purpose Desktop" "Graphical Administration Tools" "Graphics Creation Tools" "Imput Methods" "X Window System" "Chinese Support [zh]" "Internet Browser"
+
+vi /etc/inittab
+id:5:initdefault:
+
+service libvirtd start             #启动libvirtd守护进程
+
+cd /etc/sysconfig/network-script
+
+cp ifcfg-eth0 ifcfg-br0
+
+vi ifcfg-eth0
+
+DEVICE=eth0
+TYPE=Ethernet
+UUID=e4ef6c4e-af80-4638-aa66-769a2f229476
+ONBOOT=yes
+NM_CONTROLLED=yes
+BOOTPROTO=none
+HWADDR=D0:50:99:31:33:3A
+
+BRIDGE=br0
+
+vi ifcfg-br0
+
+DEVICE=br0
+TYPE=Bridge
+ONBOOT=yes
+NM_CONTROLLED=no
+BOOTPROTO=static
+IPADDR=192.168.1.241
+NETMASK=255.255.255.0
+GATEWAY=192.168.1.254
+DNS1=202.96.134.133
+
+service network restart
+
+brctl show
+
+reboot
+
+四、使用virt-install命令创建虚拟机
+
+    virt-install是一个在命令行中创建kvm虚拟机的工具，配合一些参数可以生成一个完整的.xml虚拟机配置文件。
+
+mkdir -p /home/kvm
+
+qemu-img create -f qcow2 vm01.img 18G
+ 
+virt-install --name vm01 --virt-type kvm --ram 1024 --cdrom=/home/CentOS-6.5-x86_64-minimal.iso --disk path=/home/kvm/vm01.raw,size=18 --network network=default --vnc --vnclisten=0.0.0.0 --vncport=5901 --noautoconsole     
+
+或者：
+ virt-install --name vm03 --ram 1024 --vcpus 2  --boot network,menu=on --os-variant=rhel6 --accelerate --cdrom=/home/CentOS-6.6-x86_64-minimal.iso --disk path=/home/kvm/vm03.img,size=18,bus=virtio --bridge=br0,model=virtio --autostart --vnc --vncport=5903 --vnclisten=0.0.0.0 --noautoconsole
+
+    //此时是网络是nat模式，用TigerVNC Viewer 安装按成系统后 在图像界面改回到bridge模式  及 virtio参数
+
+iptables -I INPUT -p tcp --dport 5900 -j ACCEPT
+iptables -I INPUT -p tcp --dport 5901 -j ACCEPT
+iptables -I INPUT -p tcp --dport 5902 -j ACCEPT
+iptables -I INPUT -p tcp --dport 5903 -j ACCEPT
+
+/etc/init.d/iptables save
+
+Windows——>> TigerVNC Viewer：192.168.1.241:5901  安装系统
+安装完成系统后在——虚拟系统管理器 内把原来网卡模式删除，并添加bridge模式及 virtio 等等
+
+
+    virt-install部分参数说明如下：
+
+    --name：虚拟机名称。
+    --ram：虚拟机内存，单位MB。
+    --vcpus：虚拟机cpu个数。
+    --os-type：虚拟机操作系统类型。
+    --hvm：使用全虚拟化。
+    --cdrom：使用cd安装，指定iso位置。
+    --file：设置虚拟机硬盘文件位置。
+    --file-size：设置虚拟机硬盘大小，单位GB。
+    --network：设置网络，默认网络default。
+    --graphics：设置图形，允许vnc连接，端口号5901
+
+vm01.xml  路径：可以修改 vnc及 bridge参数等
+/etc/libvirt/qemu
+
+    <interface type='bridge'>
+      <mac address='52:54:00:9d:cb:6e'/>
+      <source bridge='br0'/>
+      <model type='virtio'/>
+
+    <graphics type='vnc' port='5901' autoport='no' listen='0.0.0.0'>
+      <listen type='address' address='0.0.0.0'/>
+    </graphics>
+
+    在配置虚拟机时可能会出现“ERROR    internal error Process exited while reading console log output: char device redirected to /dev/pts/1”错误，需要修改qemu.conf 配置，把下面几个地方的注释去掉，然后把 dynamic_ownership 的值改成0，禁止 libvirtd 动态修改文件的归属：
+
+[root@hostname ~]# vi /etc/libvirt/qemu.conf
+...
+user = "root"
+group = "root"
+dynamic_ownership = 0
+...
+[root@hostname ~]# service libvirtd restart
+
+
+五、qemu-img命令创建虚拟机磁盘镜像
+
+    virt-manager默认创建的磁盘格式是raw，如果要是用qcow2格式，需要用qemu-img create命令手工创建
+
+[root@hostname ~]# qemu-img create vm01.qcow2 -f qcow2 18G
+
+    注意：在使用virt-install命令创建qcow2格式的虚拟机时，要特别指明磁盘格式，否则会出现进项复制之后虚拟机系统不能启动的现象。
+
+
+
+
+vm01 guest主机：
+
+vi ifcfg-eth0
+
+DEVICE=eth0
+HWADDR=52:54:00:9d:cb:6e
+TYPE=Ethernet
+UUID=2a67271f-f294-48fa-8901-22c3a1c2fa86
+ONBOOT=yes
+NM_CONTROLLED=yes
+BOOTPROTO=static
+IPADDR=192.168.1.242
+PREFIX=24
+GATEWAY=192.168.1.254
+DNS1=202.96.134.133
+DOMAIN=202.96.128.86
+DEFROUTE=yes
+NAME="System eth0"
+
+
+cd /etc/udev/rules.d    //此2个文件关乎网卡启动成败，，必要时 备份后，，清除nat模式下生成的网卡信息内容，
+70-persistent-net.rules
+70-persistent-cd.rules
+
+cat 70-persistent-net.rules
+
+# PCI device 0x1af4:0x1000 (virtio-pci) (custom name provided by external tool)
+SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", ATTR{address}=="52:54:00:9d:cb:6e", ATTR{type}=="1", KERNEL=="eth*", NAME="eth0"
+
+网卡bridge模式 能用后就可以，ssh,及vnc了
+yum update 及安装必要软件 并进行克隆。
+
+yum install wget
+
+wget https://mirrors.tuna.tsinghua.edu.cn/epel/6/x86_64/epel-release-6-8.noarch.rpm
+
+rpm -ivh repxxxxxx
+
+在vm01 guest机器上： 解决 virsh shutdown vm01 无法关机的问题！
+yum install acpid acpid-sysvinit   
+service acpid start
