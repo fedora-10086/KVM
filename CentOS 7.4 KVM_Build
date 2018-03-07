@@ -1,0 +1,157 @@
+虚拟化开启并安装centos系统，建议centos安装64bit。我的环境用的是centos7。进入系统，首先查看服务器版本以及是否支持虚拟化，可以使用如下命令：
+
+###查看系统版本
+# cat /etc/redhat-release 
+CentOS Linux release 7.1.1503 (Core)
+
+###查看服务器是否支持虚拟化
+# cat /proc/cpuinfo |grep vmx
+
+flags : fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts nopl xtopology tsc_reliable nonstop_tsc aperfmperf eagerfpu pni pclmulqdq vmx ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm ida arat epb xsaveopt pln pts dtherm tpr_shadow vnmi ept vpid fsgsbase tsc_adjust bmi1 avx2 smep bmi2 invpcid
+
+###出现该信息证明服务器支持虚拟化
+
+
+安装kvm以及需要的依赖包，使用如下命令。
+
+# yum install -y qemu-kvm qemu-key-tools virt-manager libvirt virt-install   python-virtinst bridge-utils 
+
+以上安装完毕后，我们检测kvm模块是否安装，可以使用如下命令：
+
+# lsmod |grep kvm
+kvm_intel             148081  0 
+kvm                   461126  1 kvm_intel
+###证明kvm模块已安装成功
+
+kvm，只是Linux内核的一个模块，不需要安装，只需要加载。加载命令如下
+
+# modprobe kvm
+# modprobe kvm_intel
+
+systemctl start libvirtd.service
+systemctl enable libvirtd.service
+systemctl status libvirtd
+systemctl is-enabled libvirtd
+
+配置网桥模式，先将 /etc/sysconfig/network-scripts/ 目录下的网卡配置文件备份一份(不要备在当前目录以及子目录下，其他目录随意)
+
+1)创建 ifcfg-br0 文件，内容如下：
+BOOTPROTO=static
+DEVICE=br0
+TYPE=Bridge
+NM_CONTROLLED=no
+IPADDR=192.168.1.55
+NETMASK=255.255.255.0
+GATEWAY=192.168.1.1
+DNS1=61.177.7.1
+DNS2=8.8.8.8
+
+2)移除掉原来的 ifcfg-enp0s25 ,重新创建该文件，内容如下：
+
+BOOTPROTO=none
+DEVICE=enp0s25
+NM_CONTROLLED=no
+ONBOOT=yes
+BRIDGE=br0
+
+3) 重启网络服务
+
+systemctl restart network
+
+
+
+
+rz拷贝系统镜像文件到/home/iso/
+
+使用 virt-install 创建虚拟机
+
+virt-install -n k88s-kvmbase -r 2048 --disk /kvm-bak/k88s-kvmbase.img,format=qcow2,size=20 --network bridge=br0 --os-type=linux --os-variant=rhel7.4 --cdrom /home/iso/CentOS-7-x86_64-Minimal-1708.iso --vnc --vncport=5901 --vnclisten=0.0.0.0
+
+ 打开防火墙上的5901端口
+
+firewall-cmd --zone=public --add-port=5901/tcp --permanent
+firewall-cmd --reload
+
+vnc
+192.168.1.xx:5901   安装完系统
+
+虚拟机系统安装完成，进行一些必须优化：
+在vm01 guest机器上： 解决 virsh shutdown vm01 无法关机的问题！
+yum install acpid acpid-sysvinit   
+systemctl start acpid.service
+systemctl enable acpid.service
+
+rpm -Uvh http://www.elrepo.org/elrepo-release-7.0-2.el7.elrepo.noarch.rpm
+
+http://mirrors.aliyun.com
+有repodata 的文件夹
+vi /etc/yum.repos.d/lab.repo
+[epel77]
+name=epel77
+baseurl=https://mirrors.aliyun.com/epel/7Server/x86_64/
+enabled=1
+gpgcheck=0
+
+yum repolist
+
+yum install -y epel-release ftp lrzsz psmisc net-tools.x86_64 wget zip unzip sysstat iotop dstat gcc htop nload iftop lsof nmon  nmap vim
+
+vi /root/.bashrc
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+alias ll='ls -lh --color=auto'
+alias grep='grep --color=auto'
+alias vi='vim'
+
+source .bashrc
+
+vi /etc/security/limits.conf
+* soft nproc 204800
+* hard nproc 204800
+* soft nofile 204800
+* hard nofile 204800
+
+vi /etc/security/limits.d/20-nproc.conf
+* soft nproc  204800
+* hard nproc 204800
+
+vi /etc/security/limits.d/def.conf
+* soft nofile 204800
+* hard nofile 204800
+
+
+vi /etc/selinux/config
+SELINUX=disabled
+
+setenforce 0
+
+firewall-cmd 打开一些必要端口：
+firewall-cmd --zone=public --add-port=22/tcp --permanent
+firewall-cmd --zone=public --add-port=80/tcp --permanent
+firewall-cmd --zone=public --add-port=443/tcp --permanent
+firewall-cmd --zone=public --add-port=25/tcp --permanent
+firewall-cmd --zone=public --add-port=110/tcp --permanent
+
+firewall-cmd --reload
+firewall-cmd --state
+firewall-cmd --zone=public --list-ports
+
+
+virsh shutdown k88s-kvmbase
+
+克隆虚拟机：
+virt-clone -o k88s-kvmbase -n k88s-kvm01 -f /kvm-bak/k88s-kvm01.img
+
+vi /etc/libvirt/qemu/k88s-kvm01.xml
+<graphics type='vnc' port='xxxx' autoport='no' listen='0.0.0.0'>
+      <listen type='address' address='0.0.0.0'/>
+      
+      
+virsh start k88s-kvm01
+virsh list --all
+virsh shutdown k88s-kvm01
+
+
+参考文档：
+http://www.cnblogs.com/think8848/p/6308672.html
